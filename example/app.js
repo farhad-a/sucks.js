@@ -57,8 +57,8 @@ httpGetJson('http://ipinfo.io/json').then((json) => {
           console.log("Battery level: %d\%", Math.round(battery * 100));
         });
 
-        vacbot.on("CleanReport", (clean_status) => {
-          console.log("Clean status: %s", clean_status);
+        vacbot.on("CleanReport", (clean_status, fan_speed) => {
+          console.log("Clean status: %s (%s)", clean_status, fan_speed);
         });
 
         vacbot.on("ChargeState", (charge_status) => {

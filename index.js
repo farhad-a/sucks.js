@@ -297,6 +297,7 @@ class VacBot {
     this.charge_status = null;
     this.battery_status = null;
     this.ping_interval = null;
+    this.fan_speed = null;
 
     this.xmpp = new EcoVacsXMPP(this, user, hostname, resource, secret, continent, server_address);
 
@@ -317,9 +318,25 @@ class VacBot {
     this.xmpp.on(name, func);
   }
 
+  _find_by_val (obj, val) {
+    for (let k of Object.keys(obj)) {
+      if (obj[k] === val) {
+        return k;
+      }
+    }
+    return null;
+  }
+
   _handle_clean_report(iq) {
+    // clean_status
     this.clean_status = iq.attrs['type'];
+    this.clean_status = this._find_by_val(VacBotCommand.CLEAN_MODE, this.clean_status) || this.clean_status;
     envLog("[VacBot] *** clean_status = " + this.clean_status);
+
+
+    this.fan_speed = iq.attrs['speed'];
+    this.fan_speed = this._find_by_val(VacBotCommand.FAN_SPEED, this.fan_speed || this.fan_speed);
+    envLog("[VacBot] *** fan_speed = " + this.fan_speed);
   }
 
   _handle_battery_info(iq) {
@@ -511,41 +528,41 @@ class EcoVacsXMPP extends EventEmitter {
     });
 
     this.simpleXmpp.on('stanza', (stanza) => {
-      //envLog('[EcoVacsXMPP] Received stanza:', JSON.stringify(stanza));
-      envLog('[EcoVacsXMPP] Received stanza XML:', stanza.toString());
       if (stanza.name == "iq" && stanza.attrs.type == "set" && !!stanza.children[0] && stanza.children[0].name == "query" && !!stanza.children[0].children[0] /*&& !!stanza.children[0].children[0].children[0]*/) {
-        envLog('[EcoVacsXMPP] Response for %s:, %s', stanza.children[0].children[0].attrs.td, JSON.stringify(stanza.children[0].children[0]));
-        switch (stanza.children[0].children[0].attrs.td) {
+        const attrs = stanza.children[0].children[0].attrs;
+        envLog('[EcoVacsXMPP] Response for %s:, %s', attrs.td, JSON.stringify(stanza.children[0].children[0]));
+        switch (attrs.td) {
           case "PushRobotNotify":
-            let type = stanza.children[0].children[0].attrs['type'];
-            let act = stanza.children[0].children[0].attrs['act'];
-            this.emit(stanza.children[0].children[0].attrs.td, {type: type, act: act});
-            this.emit("stanza", {type: stanza.children[0].children[0].attrs.td, value: {type: type, act: act}});
+            let type = attrs['type'];
+            let act = attrs['act'];
+            this.emit(attrs.td, {type: type, act: act});
+            this.emit("stanza", {type: attrs.td, value: {type: type, act: act}});
             break;
           case "DeviceInfo":
-            envLog("[EcoVacsXMPP] Received an DeviceInfo Stanza");
+            envLog("[EcoVacsXMPP] Received an DeviceInfo Stanza", attrs);
             break;
           case "ChargeState":
             this.bot._handle_charge_state(stanza.children[0].children[0].children[0]);
-            this.emit(stanza.children[0].children[0].attrs.td, this.bot.charge_status);
-            this.emit("stanza", {type: stanza.children[0].children[0].attrs.td, value: this.bot.charge_status});
+            this.emit(attrs.td, this.bot.charge_status);
+            this.emit("stanza", {type: attrs.td, value: this.bot.charge_status});
             break;
           case "BatteryInfo":
             this.bot._handle_battery_info(stanza.children[0].children[0].children[0]);
-            this.emit(stanza.children[0].children[0].attrs.td, this.bot.battery_status);
-            this.emit("stanza", {type: stanza.children[0].children[0].attrs.td, value: this.bot.battery_status});
+            this.emit(attrs.td, this.bot.battery_status);
+            this.emit("stanza", {type: attrs.td, value: this.bot.battery_status});
             break;
           case "CleanReport":
             this.bot._handle_clean_report(stanza.children[0].children[0].children[0]);
-            this.emit(stanza.children[0].children[0].attrs.td, this.bot.clean_status);
-            this.emit("stanza", {type: stanza.children[0].children[0].attrs.td, value: this.bot.clean_status});
+            this.emit(attrs.td, this.bot.clean_status, this.bot.fan_speed);
+            this.emit("stanza", {type: attrs.td, value: this.bot.clean_status, speed: this.bot.fan_speed});
             break;
           case "WKVer":
             envLog("[EcoVacsXMPP] Received an WKVer Stanza");
             break;
           case "Error":
           case "error":
-            envLog("[EcoVacsXMPP] Received an error for action '%s': %s", stanza.children[0].children[0].attrs.action, stanza.children[0].children[0].attrs.error);
+            envLog("[EcoVacsXMPP] Received an error for action '%s': %s", attrs.action, attrs.error);
+            this.emit("Error", attrs.action, attrs.error);
             break;
           case "OnOff":
             envLog("[EcoVacsXMPP] Received an OnOff Stanza");
@@ -557,20 +574,27 @@ class EcoVacsXMPP extends EventEmitter {
             envLog("[EcoVacsXMPP] Received an LifeSpan Stanza");
             break;
           default:
-            envLog("[EcoVacsXMPP] Unknown response type received");
+            envLog("[EcoVacsXMPP] Unknown response type received", attrs.td);
             break;
         }
       } else if (stanza.name == "iq" && stanza.attrs.type == "error" && !!stanza.children[0] && stanza.children[0].name == "error" && !!stanza.children[0].children[0]) {
         envLog('[EcoVacsXMPP] Response Error for request %s', stanza.attrs.id);
-
         switch (stanza.children[0].attrs.code) {
           case "404":
+            this.emit("Unreachable", stanza.children[0].attrs.code, stanza.children[0].children[0].name)
             console.error("[EcoVacsXMPP] Couldn't reach the vac :[%s] %s", stanza.children[0].attrs.code, stanza.children[0].children[0].name);
             break;
           default:
             console.error("[EcoVacsXMPP] Unknown error received: %s", JSON.stringify(stanza.children[0]));
             break;
         }
+        this.emit("stanza", {type: "Error", value: stanza.children[0].attrs.code});
+      } else if (stanza.name == "iq" && stanza.attrs.type == "result") {
+          envLog('[EcoVacsXMPP] Response Result for request %s', stanza.attrs.id);
+      }
+      else {
+        //envLog('[EcoVacsXMPP] Received stanza:', JSON.stringify(stanza));
+        envLog('[EcoVacsXMPP] Received stanza XML:', stanza.toString());
       }
     });
 
