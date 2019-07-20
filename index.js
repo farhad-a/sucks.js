@@ -500,7 +500,8 @@ class EcoVacsXMPP extends EventEmitter {
     this.resource = resource;
     this.secret = secret;
     this.continent = continent;
-    this.iter = 1;
+    this.iter = 0;
+    this.received = 0;
 
     if (!server_address) {
       this.server_address = 'msg-{continent}.ecouser.net'.format({continent: continent});
@@ -582,7 +583,7 @@ class EcoVacsXMPP extends EventEmitter {
         switch (stanza.children[0].attrs.code) {
           case "404":
             this.emit("Unreachable", stanza.children[0].attrs.code, stanza.children[0].children[0].name)
-            console.error("[EcoVacsXMPP] Couldn't reach the vac :[%s] %s", stanza.children[0].attrs.code, stanza.children[0].children[0].name);
+            console.error("[EcoVacsXMPP] Couldn't reach the vac: [%s] %s", stanza.children[0].attrs.code, stanza.children[0].children[0].name);
             break;
           default:
             console.error("[EcoVacsXMPP] Unknown error received: %s", JSON.stringify(stanza.children[0]));
@@ -590,7 +591,11 @@ class EcoVacsXMPP extends EventEmitter {
         }
         this.emit("stanza", {type: "Error", value: stanza.children[0].attrs.code});
       } else if (stanza.name == "iq" && stanza.attrs.type == "result") {
-          envLog('[EcoVacsXMPP] Response Result for request %s', stanza.attrs.id);
+        envLog('[EcoVacsXMPP] Response received for request %s', stanza.attrs.id);
+        var id = parseInt(stanza.attrs.id)
+        this.received = id;
+        this.emit("Ping", stanza.attrs.type, id);
+        this.emit("stanza", {type: stanza.attrs.type, value: id});
       }
       else {
         //envLog('[EcoVacsXMPP] Received stanza:', JSON.stringify(stanza));
@@ -621,7 +626,7 @@ class EcoVacsXMPP extends EventEmitter {
   }
 
   _wrap_command(ctl, recipient) {
-    let id = this.iter++;
+    let id = ++this.iter;
     let q = new Element('iq', {id: id, to: recipient, from: this._my_address(), type: 'set'});
     q.c('query', {xmlns: 'com:ctl'}).cnode(ctl.to_xml());
     return q;
@@ -632,7 +637,7 @@ class EcoVacsXMPP extends EventEmitter {
   }
 
   send_ping(to) {
-    let id = this.iter++;
+    let id = ++this.iter;
     envLog("[EcoVacsXMPP] *** sending ping ***");
     var e = new Element('iq', {id: id, to: to, from: this._my_address(), type: 'get'});
     e.c('query', {xmlns: 'urn:xmpp:ping'});
